@@ -164,12 +164,12 @@ objects:
     - dog
     - cat
   genai:
-    prompt: "Security camera {camera}. Reply with only a few words like a log entry. No full sentences."
+    prompt: "Home security notification, 3-8 words. Say who it is and what they're doing. Never say 'no items' or 'unknown'. Never just say a single word."
     object_prompts:
-      person: "Few words only. Start with who (man, woman, delivery driver, kid, etc), then action and items."
-      car: "Few words only. Arriving/leaving/parked, color, type."
-      dog: "Few words only. What is the dog doing?"
-      cat: "Few words only. What is the cat doing?"
+      person: "3-8 words. Start with who (man, woman, kid, delivery driver, etc), then briefly what they're doing. Include items only if notable. Skip colors of clothing. Never respond with just one word. GOOD: 'man taking out trash' / 'delivery driver leaving package' / 'woman with stroller' / 'teenager on bike'. BAD: 'woman' / 'unknown man' / 'person walking' / 'man walking on driveway, no items'"
+      car: "3-8 words. Color, type, arriving or leaving. Skip if parked. GOOD: 'white SUV pulling in' / 'black sedan leaving'"
+      dog: "3-8 words. GOOD: 'small dog in backyard' / 'dog running across yard'"
+      cat: "3-8 words. GOOD: 'cat on front porch' / 'stray cat crossing yard'"
 
 # Enable per camera
 cameras:
