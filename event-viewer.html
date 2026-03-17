@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>Frigate Event</title>
+  <link rel="icon" href="/favicon.ico">
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0d1117; color: #e6edf3; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+
+    .header {
+      padding: 12px 16px;
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .header-info h1 { font-size: 18px; font-weight: 600; }
+    .header-info .meta { font-size: 13px; color: #8b949e; margin-top: 2px; }
+    .frigate-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #21262d;
+      color: #e6edf3;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 14px;
+      font-weight: 500;
+      text-decoration: none;
+      white-space: nowrap;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+    }
+    .frigate-btn:active { background: #30363d; }
+    .frigate-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+    .mode-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+    }
+    .mode-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+    .mode-badge.live { background: #da3633; color: #fff; animation: pulse 2s infinite; }
+    .mode-badge.clip { background: #1f6feb; color: #fff; }
+    .mode-badge.error { background: #f85149; color: #fff; }
+    .mode-badge .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    .mode-details { font-size: 12px; color: #8b949e; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+
+    .viewer {
+      position: relative;
+      width: 100%;
+      background: #000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 40vh;
+    }
+    .viewer img, .viewer video {
+      width: 100%;
+      max-height: calc(100vh - 280px);
+      object-fit: contain;
+      display: block;
+    }
+
+    .ai-description {
+      padding: 10px 16px;
+      background: #161b22;
+      border-top: 1px solid #30363d;
+      display: none;
+    }
+    .ai-description .ai-label {
+      font-size: 11px;
+      color: #8b949e;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+    .ai-description .ai-text {
+      font-size: 14px;
+      line-height: 1.4;
+      color: #e6edf3;
+    }
+    .ai-description .ai-text.loading {
+      color: #8b949e;
+      font-style: italic;
+    }
+
+    .event-info {
+      padding: 12px 16px;
+      background: #161b22;
+      border-top: 1px solid #30363d;
+      display: none;
+    }
+    .event-info .info-label {
+      font-size: 11px;
+      color: #8b949e;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+    .event-info .detail-row { display: flex; gap: 16px; font-size: 13px; flex-wrap: wrap; }
+    .event-info .detail-item { display: flex; align-items: center; gap: 4px; }
+    .event-info .detail-item .val { color: #e6edf3; }
+    .event-info .detail-item .key { color: #8b949e; }
+
+    .recent-clips { padding: 12px 0; border-top: 1px solid #30363d; display: none; }
+    .recent-clips .section-title {
+      font-size: 11px;
+      color: #8b949e;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 0 16px 8px;
+    }
+    .recent-scroll {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 0 16px;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    .recent-scroll::-webkit-scrollbar { display: none; }
+    .recent-card { flex-shrink: 0; width: 120px; text-decoration: none; color: #e6edf3; }
+    .recent-card img {
+      width: 120px; height: 68px; object-fit: cover;
+      border-radius: 6px; border: 2px solid transparent; display: block;
+    }
+    .recent-card.active img { border-color: #1f6feb; }
+    .recent-card .card-label {
+      font-size: 11px; color: #8b949e; margin-top: 4px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .recent-card .card-meta { font-size: 11px; color: #58a6ff; }
+
+    .error-msg { padding: 40px 20px; text-align: center; color: #f85149; font-size: 16px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-info">
+      <h1 id="camera-name">Loading...</h1>
+      <div class="meta" id="timestamp"></div>
+    </div>
+    <a id="review-link" class="frigate-btn" href="#">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+        <polyline points="15 3 21 3 21 9"/>
+        <line x1="10" y1="14" x2="21" y2="3"/>
+      </svg>
+      Frigate
+    </a>
+  </div>
+
+  <div class="mode-indicator" id="mode-indicator" style="display:none">
+    <div id="mode-badge" class="mode-badge"></div>
+    <div id="mode-details" class="mode-details"></div>
+  </div>
+
+  <div class="viewer" id="viewer">
+    <img id="snapshot" src="" alt="Snapshot">
+    <video id="video" style="display:none" controls playsinline muted></video>
+  </div>
+
+  <div class="ai-description" id="ai-description">
+    <div class="ai-label">AI Description</div>
+    <div class="ai-text loading" id="ai-text">Analyzing...</div>
+  </div>
+
+  <div class="event-info" id="event-info" style="display:none">
+    <div class="info-label">Event Details</div>
+    <div class="detail-row" id="detail-row"></div>
+  </div>
+
+  <div class="recent-clips" id="recent-clips" style="display:none">
+    <div class="section-title">Recent Clips</div>
+    <div class="recent-scroll" id="recent-scroll"></div>
+  </div>
+
+  <script>
+    var params = new URLSearchParams(location.search);
+    var eventId = params.get('event_id');
+    var camera = params.get('camera');
+    var reviewId = params.get('review_id');
+
+    var snapshot = document.getElementById('snapshot');
+    var video = document.getElementById('video');
+    var modeIndicator = document.getElementById('mode-indicator');
+    var modeBadge = document.getElementById('mode-badge');
+    var modeDetails = document.getElementById('mode-details');
+    var aiDescEl = document.getElementById('ai-description');
+    var aiTextEl = document.getElementById('ai-text');
+
+    var hls = null;
+    var descriptionPollTimer = null;
+    var descriptionPollCount = 0;
+    var MAX_DESCRIPTION_POLLS = 20;
+
+    if (!eventId || !camera) {
+      document.getElementById('viewer').innerHTML = '<div class="error-msg">Missing event_id or camera parameter</div>';
+    } else {
+      document.getElementById('camera-name').textContent = formatCamera(camera);
+      document.getElementById('review-link').href = reviewId ? '/review?id=' + reviewId : '/#' + camera;
+      snapshot.src = '/api/events/' + eventId + '/snapshot.jpg';
+      checkEvent();
+      loadRecentClips();
+    }
+
+    function formatCamera(name) {
+      return name.replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+    }
+
+    function escapeHtml(str) {
+      var div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    function timeAgo(ts) {
+      var diff = Math.floor(Date.now() / 1000 - ts);
+      if (diff < 60) return diff + 's ago';
+      if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+      if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+      return Math.floor(diff / 86400) + 'd ago';
+    }
+
+    function formatDuration(start, end) {
+      var secs = Math.round(end - start);
+      if (secs < 60) return secs + 's';
+      return Math.floor(secs / 60) + 'm ' + (secs % 60) + 's';
+    }
+
+    async function checkEvent() {
+      try {
+        var res = await fetch('/api/events/' + encodeURIComponent(eventId));
+        if (!res.ok) throw new Error('Event not found (' + res.status + ')');
+        var ev = await res.json();
+        document.getElementById('timestamp').textContent = new Date(ev.start_time * 1000).toLocaleString();
+        showEventInfo(ev);
+        showDescription(ev);
+
+        if (ev.end_time === null) {
+          showLive(ev);
+        } else {
+          showClip(ev);
+        }
+      } catch (e) {
+        setMode('error', 'ERROR', e.message);
+      }
+    }
+
+    function setMode(type, label, details) {
+      modeIndicator.style.display = 'flex';
+      modeBadge.className = 'mode-badge ' + type;
+      modeBadge.innerHTML = type === 'live' ? '<span class="dot"></span> ' + escapeHtml(label) : escapeHtml(label);
+      modeDetails.textContent = details;
+    }
+
+    /* --- AI Description (gracefully hidden if GenAI not configured) --- */
+
+    function showDescription(ev) {
+      var desc = ev.data && ev.data.description;
+      if (desc && desc.length > 0) {
+        aiDescEl.style.display = 'block';
+        aiTextEl.textContent = desc;
+        aiTextEl.className = 'ai-text';
+      } else {
+        startDescriptionPolling();
+      }
+    }
+
+    function startDescriptionPolling() {
+      if (descriptionPollTimer) return;
+      descriptionPollCount = 0;
+      descriptionPollTimer = setInterval(pollDescription, 3000);
+    }
+
+    async function pollDescription() {
+      descriptionPollCount++;
+      if (descriptionPollCount > MAX_DESCRIPTION_POLLS) {
+        clearInterval(descriptionPollTimer);
+        descriptionPollTimer = null;
+        return;
+      }
+      try {
+        var res = await fetch('/api/events/' + encodeURIComponent(eventId));
+        if (!res.ok) return;
+        var ev = await res.json();
+        showEventInfo(ev);
+        var desc = ev.data && ev.data.description;
+        if (desc && desc.length > 0) {
+          aiDescEl.style.display = 'block';
+          aiTextEl.textContent = desc;
+          aiTextEl.className = 'ai-text';
+          clearInterval(descriptionPollTimer);
+          descriptionPollTimer = null;
+        }
+      } catch (e) {}
+    }
+
+    /* --- Event Info --- */
+
+    function showEventInfo(ev) {
+      var info = document.getElementById('event-info');
+      var row = document.getElementById('detail-row');
+      info.style.display = 'block';
+
+      var parts = [];
+      parts.push(detailItem('Object', ev.label || 'unknown'));
+      if (ev.sub_label) parts.push(detailItem('ID', ev.sub_label));
+
+      var score = ev.top_score || (ev.data && ev.data.top_score);
+      if (score) parts.push(detailItem('Score', Math.round(score * 100) + '%'));
+
+      if (ev.end_time) {
+        parts.push(detailItem('Duration', formatDuration(ev.start_time, ev.end_time)));
+      } else {
+        parts.push(detailItem('Elapsed', Math.round(Date.now() / 1000 - ev.start_time) + 's'));
+      }
+
+      if (ev.zones && ev.zones.length > 0) {
+        parts.push(detailItem('Zone', ev.zones.join(', ')));
+      }
+
+      row.innerHTML = parts.join('');
+    }
+
+    function detailItem(key, val) {
+      return '<span class="detail-item"><span class="key">' + escapeHtml(key) + ':</span> <span class="val">' + escapeHtml(String(val)) + '</span></span>';
+    }
+
+    /* --- Video Playback --- */
+
+    function showLive(ev) {
+      setMode('live', 'LIVE', formatCamera(camera) + ' — ' + (ev.label || 'detection') + ' in progress');
+      playHls('/api/go2rtc/api/stream.m3u8?src=' + encodeURIComponent(camera + '_sub'));
+    }
+
+    function showClip(ev) {
+      var startTs = Math.floor(ev.start_time);
+      var endTs = Math.ceil(ev.end_time) + 1;
+      setMode('clip', 'CLIP', formatDuration(ev.start_time, ev.end_time) + ' clip — ' + new Date(ev.start_time * 1000).toLocaleTimeString());
+      playHls('/vod/' + encodeURIComponent(camera) + '/start/' + startTs + '/end/' + endTs + '/master.m3u8');
+    }
+
+    function playHls(url) {
+      cleanupStream();
+      snapshot.style.display = 'none';
+      video.style.display = 'block';
+
+      if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = url;
+        video.play().catch(function() {});
+        video.onerror = function() { playHlsJs(url); };
+      } else {
+        playHlsJs(url);
+      }
+    }
+
+    function playHlsJs(url) {
+      cleanupStream();
+      if (typeof Hls === 'undefined' || !Hls.isSupported()) {
+        tryRawMp4();
+        return;
+      }
+      hls = new Hls({ maxBufferLength: 10, maxBufferSize: 20 * 1024 * 1024 });
+      hls.loadSource(url);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, function() {
+        video.play().catch(function() {});
+      });
+      hls.on(Hls.Events.ERROR, function(event, data) {
+        if (data.fatal) tryRawMp4();
+      });
+    }
+
+    function tryRawMp4() {
+      cleanupStream();
+      video.src = '/api/events/' + encodeURIComponent(eventId) + '/clip.mp4';
+      video.play().catch(function() {});
+      video.onerror = function() {
+        modeDetails.textContent = 'Playback error — try opening in Frigate';
+        video.style.display = 'none';
+        snapshot.style.display = 'block';
+      };
+    }
+
+    function cleanupStream() {
+      if (hls) { hls.destroy(); hls = null; }
+      video.removeAttribute('src');
+      video.load();
+    }
+
+    /* --- Recent Clips --- */
+
+    async function loadRecentClips() {
+      try {
+        var res = await fetch('/api/review?limit=10&severity=alert');
+        if (!res.ok) return;
+        var reviews = await res.json();
+        if (reviews.length < 2) return;
+
+        var container = document.getElementById('recent-clips');
+        var scroll = document.getElementById('recent-scroll');
+        container.style.display = 'block';
+
+        reviews.forEach(function(r) {
+          var firstDetection = r.data.detections[0] || '';
+          var isActive = firstDetection === eventId || r.id === reviewId;
+
+          var a = document.createElement('a');
+          a.className = 'recent-card' + (isActive ? ' active' : '');
+          a.href = '/event-viewer.html?event_id=' + encodeURIComponent(firstDetection) + '&camera=' + encodeURIComponent(r.camera) + '&review_id=' + encodeURIComponent(r.id);
+
+          var img = document.createElement('img');
+          img.src = r.thumb_path.replace('/media/frigate/', '/');
+          img.loading = 'lazy';
+
+          var label = document.createElement('div');
+          label.className = 'card-label';
+          label.textContent = r.data.objects.join(', ') || 'activity';
+
+          var meta = document.createElement('div');
+          meta.className = 'card-meta';
+          meta.textContent = formatCamera(r.camera) + ' \u00b7 ' + timeAgo(r.start_time);
+
+          a.appendChild(img);
+          a.appendChild(label);
+          a.appendChild(meta);
+          scroll.appendChild(a);
+        });
+      } catch (e) {}
+    }
+  </script>
+</body>
+</html>
