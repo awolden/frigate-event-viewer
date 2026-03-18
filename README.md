@@ -80,8 +80,7 @@ automation:
           data:
             tag: frigate-{{ camera_name }}
             group: frigate
-            entity_id: camera.{{ camera_name }}
-            image: /api/frigate/notifications/{{ event_id }}/thumbnail.jpg
+            image: /api/frigate/notifications/{{ event_id }}/snapshot.jpg
             actions:
               - action: URI
                 title: View Event
@@ -132,8 +131,7 @@ Then add this after the initial notification in your automation to poll for the 
                 data:
                   tag: frigate-{{ camera_name }}
                   group: frigate
-                  entity_id: camera.{{ camera_name }}
-                  image: /api/frigate/notifications/{{ event_id }}/thumbnail.jpg
+                  image: /api/frigate/notifications/{{ event_id }}/snapshot.jpg
                   push:
                     sound: none
                     interruption-level: passive
