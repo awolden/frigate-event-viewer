@@ -475,11 +475,26 @@
       var startTs = Math.floor(ev.start_time);
       var endTs = Math.ceil(ev.end_time) + 1;
       setMode('clip', 'CLIP', formatDuration(ev.start_time, ev.end_time) + ' clip — ' + new Date(ev.start_time * 1000).toLocaleTimeString());
-      // Go direct to the single variant manifest, skipping the pointless master manifest hop
-      // (Frigate's nginx-vod generates a single-variant master, costs ~350ms server-gen for nothing).
-      // tryRawMp4 covers the case where the variant URL pattern changes in some future Frigate.
-      var base = '/vod/' + encodeURIComponent(camera) + '/start/' + startTs + '/end/' + endTs + '/';
-      playHls(base + 'index-v1-a1.m3u8');
+      var clipUrl = '/api/events/' + encodeURIComponent(eventId) + '/clip.mp4';
+      var hlsUrl = '/vod/' + encodeURIComponent(camera) + '/start/' + startTs + '/end/' + endTs + '/index-v1-a1.m3u8';
+      // clip.mp4 is one roundtrip vs HLS's three (manifest + init + segment). Frigate's mp4
+      // muxer puts moov at the front so playback starts progressively. HLS is the fallback
+      // for cases where clip.mp4 fails or is missing.
+      playClipMp4(clipUrl, hlsUrl);
+    }
+
+    function playClipMp4(mp4Url, hlsFallbackUrl) {
+      cleanupStream();
+      snapshot.style.display = 'none';
+      video.style.display = 'block';
+      perfMark('video.src set (clip.mp4)');
+      video.src = mp4Url;
+      video.play().catch(function() {});
+      video.onerror = function() {
+        perfMark('clip.mp4 failed, falling back to HLS');
+        video.onerror = null;
+        playHls(hlsFallbackUrl);
+      };
     }
 
     function playHls(url) {
