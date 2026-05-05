@@ -265,7 +265,34 @@
         var t = String(m.t).padStart(5, ' ');
         return t + 'ms  ' + m.name;
       }).join('\n');
-      el.innerHTML = '<span class="perf-title">Critical path timings</span>' + rows;
+      var extra = renderResourceTimings();
+      el.innerHTML = '<span class="perf-title">Critical path timings</span>' + rows + extra;
+    }
+
+    function renderResourceTimings() {
+      if (!performance.getEntriesByType) return '';
+      var entries = performance.getEntriesByType('resource');
+      if (entries.length === 0) return '';
+      var rows = entries.map(function(e) {
+        var u = e.name.split('?')[0];
+        u = u.replace(location.origin, '');
+        if (u.length > 60) u = u.slice(0, 27) + '...' + u.slice(-30);
+        var dns = Math.round(e.domainLookupEnd - e.domainLookupStart);
+        var conn = Math.round(e.connectEnd - e.connectStart);
+        var ttfb = Math.round(e.responseStart - e.requestStart);
+        var dl = Math.round(e.responseEnd - e.responseStart);
+        var total = Math.round(e.duration);
+        var size = e.transferSize || 0;
+        return [
+          String(Math.round(e.startTime)).padStart(5),
+          String(total).padStart(4) + 'ms',
+          'ttfb=' + String(ttfb).padStart(3) + 'ms',
+          'dl=' + String(dl).padStart(3) + 'ms',
+          (size > 1024 ? Math.round(size / 1024) + 'KB' : size + 'B').padStart(7),
+          u
+        ].join('  ');
+      }).join('\n');
+      return '\n\n<span class="perf-title">Network resources (start, total, ttfb, download, size)</span>' + rows;
     }
     perfMark('script start');
     perfMark(typeof Hls !== 'undefined' ? 'hls.js loaded (sync)' : 'hls.js not yet loaded');
@@ -291,7 +318,13 @@
     video.addEventListener('loadedmetadata', function() { perfMark('video metadata'); });
     video.addEventListener('canplay', function() { perfMark('video canplay'); });
     video.addEventListener('playing', function() {
-      if (!firstPlayMarked) { firstPlayMarked = true; perfMark('video playing (first frame)'); }
+      if (!firstPlayMarked) {
+        firstPlayMarked = true;
+        perfMark('video playing (first frame)');
+        if (PERF) {
+          setTimeout(function() { perfMark('+2s post-play snapshot'); }, 2000);
+        }
+      }
     });
 
     if (!eventId || !camera) {
@@ -442,7 +475,11 @@
       var startTs = Math.floor(ev.start_time);
       var endTs = Math.ceil(ev.end_time) + 1;
       setMode('clip', 'CLIP', formatDuration(ev.start_time, ev.end_time) + ' clip — ' + new Date(ev.start_time * 1000).toLocaleTimeString());
-      playHls('/vod/' + encodeURIComponent(camera) + '/start/' + startTs + '/end/' + endTs + '/master.m3u8');
+      // Go direct to the single variant manifest, skipping the pointless master manifest hop
+      // (Frigate's nginx-vod generates a single-variant master, costs ~350ms server-gen for nothing).
+      // tryRawMp4 covers the case where the variant URL pattern changes in some future Frigate.
+      var base = '/vod/' + encodeURIComponent(camera) + '/start/' + startTs + '/end/' + endTs + '/';
+      playHls(base + 'index-v1-a1.m3u8');
     }
 
     function playHls(url) {
@@ -451,6 +488,7 @@
       video.style.display = 'block';
 
       if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        perfMark('video.src set (native HLS)');
         video.src = url;
         video.play().catch(function() {});
         video.onerror = function() { playHlsJs(url); };
