@@ -12,13 +12,13 @@ A mobile-friendly event viewer page for [Frigate NVR](https://frigate.video). Ta
 - **Recent Clips** — horizontal carousel of recent review clips across all cameras
 - **Cross-platform video** — native HLS → hls.js → raw MP4 fallback chain (works on iOS, Android, desktop)
 - **Dark theme** — matches Frigate's UI
-- **Single HTML file** — no build step, no dependencies beyond hls.js from CDN
+- **Single HTML file** — no build step, hls.js bundled alongside (no CDN dependency)
 
 ## Installation
 
 ### Docker (recommended)
 
-Add a volume mount to your Frigate Docker Compose file:
+Mount both `event-viewer.html` and `hls.min.js` into Frigate's web directory:
 
 ```yaml
 services:
@@ -26,6 +26,7 @@ services:
     # ... your existing config ...
     volumes:
       - /path/to/event-viewer.html:/opt/frigate/web/event-viewer.html:ro
+      - /path/to/hls.min.js:/opt/frigate/web/hls.min.js:ro
 ```
 
 Then restart Frigate:
