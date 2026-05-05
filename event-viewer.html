@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <title>Frigate Event</title>
@@ -74,6 +74,16 @@
       justify-content: center;
       align-items: center;
       min-height: 40vh;
+      overflow: hidden;
+      touch-action: none;
+    }
+    .zoom-layer {
+      width: 100%;
+      transform-origin: 0 0;
+      will-change: transform;
+      display: flex;
+      justify-content: center;
+      align-items: center;
     }
     .viewer img, .viewer video {
       width: 100%;
@@ -81,6 +91,37 @@
       object-fit: contain;
       display: block;
     }
+    .zoom-hint {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: rgba(0,0,0,0.6);
+      color: #fff;
+      font-size: 10px;
+      padding: 3px 7px;
+      border-radius: 4px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .zoom-hint.visible { opacity: 1; }
+
+    .perf-overlay {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: rgba(0,0,0,0.9);
+      color: #6dd96d;
+      font: 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+      padding: 8px 10px;
+      z-index: 9999;
+      max-height: 50vh;
+      overflow: auto;
+      white-space: pre;
+      border-top: 1px solid #30363d;
+    }
+    .perf-overlay .perf-title { color: #fff; font-weight: 600; margin-bottom: 4px; display: block; }
 
     .ai-description {
       padding: 10px 16px;
@@ -177,8 +218,11 @@
   </div>
 
   <div class="viewer" id="viewer">
-    <img id="snapshot" src="" alt="Snapshot">
-    <video id="video" style="display:none" controls playsinline muted preload="auto"></video>
+    <div class="zoom-layer" id="zoom-layer">
+      <img id="snapshot" src="" alt="Snapshot">
+      <video id="video" style="display:none" controls playsinline muted preload="auto"></video>
+    </div>
+    <div class="zoom-hint" id="zoom-hint">1.0x</div>
   </div>
 
   <div class="ai-description" id="ai-description">
@@ -201,6 +245,30 @@
     var eventId = params.get('event_id');
     var camera = params.get('camera');
     var reviewId = params.get('review_id');
+    var PERF = params.get('perf') === '1';
+
+    var T0 = performance.now();
+    var perfMarks = [];
+    function perfMark(name) {
+      perfMarks.push({ name: name, t: Math.round(performance.now() - T0) });
+      if (PERF) renderPerf();
+    }
+    function renderPerf() {
+      var el = document.getElementById('perf-overlay');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'perf-overlay';
+        el.className = 'perf-overlay';
+        document.body.appendChild(el);
+      }
+      var rows = perfMarks.map(function(m) {
+        var t = String(m.t).padStart(5, ' ');
+        return t + 'ms  ' + m.name;
+      }).join('\n');
+      el.innerHTML = '<span class="perf-title">Critical path timings</span>' + rows;
+    }
+    perfMark('script start');
+    perfMark(typeof Hls !== 'undefined' ? 'hls.js loaded (sync)' : 'hls.js not yet loaded');
 
     var snapshot = document.getElementById('snapshot');
     var video = document.getElementById('video');
@@ -214,6 +282,17 @@
     var descriptionPollTimer = null;
     var descriptionPollCount = 0;
     var MAX_DESCRIPTION_POLLS = 20;
+    var snapshotLoadMarked = false;
+    var firstPlayMarked = false;
+
+    snapshot.addEventListener('load', function() {
+      if (!snapshotLoadMarked) { snapshotLoadMarked = true; perfMark('snapshot loaded'); }
+    });
+    video.addEventListener('loadedmetadata', function() { perfMark('video metadata'); });
+    video.addEventListener('canplay', function() { perfMark('video canplay'); });
+    video.addEventListener('playing', function() {
+      if (!firstPlayMarked) { firstPlayMarked = true; perfMark('video playing (first frame)'); }
+    });
 
     if (!eventId || !camera) {
       document.getElementById('viewer').innerHTML = '<div class="error-msg">Missing event_id or camera parameter</div>';
@@ -221,8 +300,10 @@
       document.getElementById('camera-name').textContent = formatCamera(camera);
       document.getElementById('review-link').href = reviewId ? '/review?id=' + reviewId : '/#' + camera;
       snapshot.src = '/api/events/' + eventId + '/snapshot.jpg';
+      perfMark('snapshot src set');
       checkEvent();
       loadRecentClips();
+      setupPinchZoom();
     }
 
     function formatCamera(name) {
@@ -251,9 +332,11 @@
 
     async function checkEvent() {
       try {
+        perfMark('event JSON fetch start');
         var res = await fetch('/api/events/' + encodeURIComponent(eventId));
         if (!res.ok) throw new Error('Event not found (' + res.status + ')');
         var ev = await res.json();
+        perfMark('event JSON received');
         document.getElementById('timestamp').textContent = new Date(ev.start_time * 1000).toLocaleString();
         showEventInfo(ev);
         showDescription(ev);
@@ -382,6 +465,7 @@
         tryRawMp4();
         return;
       }
+      perfMark('hls.js init');
       hls = new Hls({
         maxBufferLength: 10,
         maxBufferSize: 20 * 1024 * 1024,
@@ -390,7 +474,13 @@
       });
       hls.loadSource(url);
       hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_LOADED, function() { perfMark('hls master manifest loaded'); });
+      hls.on(Hls.Events.LEVEL_LOADED, function() { perfMark('hls variant manifest loaded'); });
+      hls.on(Hls.Events.FRAG_LOADED, function() {
+        if (!window._fragMarked) { window._fragMarked = true; perfMark('hls first segment loaded'); }
+      });
       hls.on(Hls.Events.MANIFEST_PARSED, function() {
+        perfMark('hls manifest parsed');
         video.play().catch(function() {});
       });
       hls.on(Hls.Events.ERROR, function(event, data) {
@@ -454,6 +544,125 @@
           scroll.appendChild(a);
         });
       } catch (e) {}
+    }
+
+    /* --- Pinch zoom + pan on the viewer --- */
+
+    function setupPinchZoom() {
+      var viewer = document.getElementById('viewer');
+      var layer = document.getElementById('zoom-layer');
+      var hint = document.getElementById('zoom-hint');
+      var MIN_SCALE = 1, MAX_SCALE = 6;
+      var state = { scale: 1, tx: 0, ty: 0 };
+      var gesture = null;
+      var lastTap = 0;
+      var hintTimer = null;
+
+      function clampPan() {
+        var rect = layer.getBoundingClientRect();
+        var vrect = viewer.getBoundingClientRect();
+        var scaledW = rect.width;
+        var scaledH = rect.height;
+        var maxX = Math.max(0, (scaledW - vrect.width) / 2);
+        var maxY = Math.max(0, (scaledH - vrect.height) / 2);
+        if (state.tx > maxX) state.tx = maxX;
+        if (state.tx < -maxX) state.tx = -maxX;
+        if (state.ty > maxY) state.ty = maxY;
+        if (state.ty < -maxY) state.ty = -maxY;
+      }
+
+      function apply() {
+        clampPan();
+        layer.style.transform =
+          'translate(' + state.tx + 'px,' + state.ty + 'px) scale(' + state.scale + ')';
+        layer.style.transformOrigin = '50% 50%';
+        showHint();
+      }
+
+      function showHint() {
+        hint.textContent = state.scale.toFixed(1) + 'x';
+        hint.classList.add('visible');
+        clearTimeout(hintTimer);
+        hintTimer = setTimeout(function() { hint.classList.remove('visible'); }, 800);
+      }
+
+      function reset() {
+        state.scale = 1; state.tx = 0; state.ty = 0;
+        apply();
+      }
+
+      function dist(t1, t2) {
+        return Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+      }
+
+      viewer.addEventListener('touchstart', function(e) {
+        if (e.touches.length === 2) {
+          e.preventDefault();
+          var t1 = e.touches[0], t2 = e.touches[1];
+          var vrect = viewer.getBoundingClientRect();
+          gesture = {
+            type: 'pinch',
+            startDist: dist(t1, t2),
+            startScale: state.scale,
+            startTx: state.tx,
+            startTy: state.ty,
+            cx: (t1.clientX + t2.clientX) / 2 - vrect.left - vrect.width / 2,
+            cy: (t1.clientY + t2.clientY) / 2 - vrect.top - vrect.height / 2
+          };
+        } else if (e.touches.length === 1 && state.scale > 1) {
+          e.preventDefault();
+          gesture = {
+            type: 'pan',
+            startX: e.touches[0].clientX,
+            startY: e.touches[0].clientY,
+            startTx: state.tx,
+            startTy: state.ty
+          };
+        }
+      }, { passive: false });
+
+      viewer.addEventListener('touchmove', function(e) {
+        if (!gesture) return;
+        if (gesture.type === 'pinch' && e.touches.length === 2) {
+          e.preventDefault();
+          var d = dist(e.touches[0], e.touches[1]);
+          var newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE,
+            gesture.startScale * d / gesture.startDist));
+          var ratio = newScale / gesture.startScale;
+          state.scale = newScale;
+          state.tx = gesture.startTx * ratio + gesture.cx * (1 - ratio);
+          state.ty = gesture.startTy * ratio + gesture.cy * (1 - ratio);
+          apply();
+        } else if (gesture.type === 'pan' && e.touches.length === 1) {
+          e.preventDefault();
+          state.tx = gesture.startTx + (e.touches[0].clientX - gesture.startX);
+          state.ty = gesture.startTy + (e.touches[0].clientY - gesture.startY);
+          apply();
+        }
+      }, { passive: false });
+
+      viewer.addEventListener('touchend', function(e) {
+        if (e.touches.length === 0) {
+          gesture = null;
+          if (state.scale <= 1.02) reset();
+          var now = Date.now();
+          if (now - lastTap < 300) {
+            if (state.scale > 1) reset();
+            else { state.scale = 2; apply(); }
+            lastTap = 0;
+          } else {
+            lastTap = now;
+          }
+        } else if (e.touches.length === 1 && gesture && gesture.type === 'pinch') {
+          gesture = {
+            type: 'pan',
+            startX: e.touches[0].clientX,
+            startY: e.touches[0].clientY,
+            startTx: state.tx,
+            startTy: state.ty
+          };
+        }
+      });
     }
   </script>
 </body>
