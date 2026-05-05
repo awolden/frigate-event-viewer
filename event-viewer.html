@@ -78,23 +78,23 @@
       touch-action: none;
     }
     .zoom-layer {
+      position: relative;
       width: 100%;
+      max-width: calc((100vh - 280px) * 16 / 9);
+      aspect-ratio: 16 / 9;
       transform-origin: 0 0;
       will-change: transform;
-      position: relative;
+      margin: 0 auto;
     }
     .viewer img, .viewer video {
+      position: absolute;
+      inset: 0;
       width: 100%;
-      max-height: calc(100vh - 280px);
+      height: 100%;
       object-fit: contain;
       display: block;
     }
     .viewer video {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
       opacity: 0;
       transition: opacity 0.15s;
     }
@@ -322,6 +322,10 @@
 
     snapshot.addEventListener('load', function() {
       if (!snapshotLoadMarked) { snapshotLoadMarked = true; perfMark('snapshot loaded'); }
+      if (snapshot.naturalWidth && snapshot.naturalHeight) {
+        document.getElementById('zoom-layer').style.aspectRatio =
+          snapshot.naturalWidth + ' / ' + snapshot.naturalHeight;
+      }
     });
     video.addEventListener('loadedmetadata', function() { perfMark('video metadata'); });
     video.addEventListener('canplay', function() { perfMark('video canplay'); });
