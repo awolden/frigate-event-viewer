@@ -75,12 +75,25 @@
       align-items: center;
       min-height: 40vh;
     }
-    .viewer img, .viewer video {
+    .viewer img {
       width: 100%;
       max-height: calc(100vh - 280px);
       object-fit: contain;
       display: block;
+      transition: opacity 0.25s ease;
     }
+    .viewer video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #000;
+      display: none;
+    }
+    /* Snapshot stays in DOM (drives container size) but fades out once the
+       video reports it is actually playing — not just loading. */
+    .viewer.video-playing img { opacity: 0; }
 
     .ai-description {
       padding: 10px 16px;
@@ -204,6 +217,17 @@
 
     var snapshot = document.getElementById('snapshot');
     var video = document.getElementById('video');
+    var viewer = document.getElementById('viewer');
+
+    // Hide the snapshot only when the video is actually rendering frames,
+    // not when it merely starts loading. Avoids the black flash during buffer.
+    video.addEventListener('playing', function() {
+      viewer.classList.add('video-playing');
+    });
+    video.addEventListener('emptied', function() {
+      viewer.classList.remove('video-playing');
+    });
+
     var modeIndicator = document.getElementById('mode-indicator');
     var modeBadge = document.getElementById('mode-badge');
     var modeDetails = document.getElementById('mode-details');
@@ -364,7 +388,9 @@
 
     function playHls(url) {
       cleanupStream();
-      snapshot.style.display = 'none';
+      // Show the video element (absolute over the snapshot). Do NOT hide the
+      // snapshot yet — keep it visible as a poster until the video reports
+      // its 'playing' event, then fade out via the .video-playing class.
       video.style.display = 'block';
 
       if (video.canPlayType('application/vnd.apple.mpegurl')) {
@@ -400,6 +426,7 @@
       video.onerror = function() {
         modeDetails.textContent = 'Playback error — try opening in Frigate';
         video.style.display = 'none';
+        viewer.classList.remove('video-playing');
         snapshot.style.display = 'block';
       };
     }
